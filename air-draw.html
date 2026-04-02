@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Air Draw — Gesture-Based Doodler</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --neon-cyan: #00f5ff;
+      --neon-pink: #ff00ff;
+      --neon-green: #00ff88;
+      --dark: #0a0a0f;
+      --glass: rgba(255,255,255,0.06);
+      --glass-border: rgba(255,255,255,0.12);
+    }
+
+    body {
+      background: var(--dark);
+      font-family: 'Space Grotesk', sans-serif;
+      color: #fff;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* ─── Loading Screen ─── */
+    #loading {
+      position: fixed; inset: 0; z-index: 100;
+      background: var(--dark);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 24px;
+      transition: opacity 0.6s ease;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    .logo-title {
+      font-size: 2rem; font-weight: 700; letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-pink));
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+    }
+    .loader-bar {
+      width: 200px; height: 2px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px; overflow: hidden;
+    }
+    .loader-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+      width: 0%; transition: width 0.4s ease;
+      border-radius: 2px;
+    }
+    .loader-text { font-size: 13px; color: rgba(255,255,255,0.5); letter-spacing: 0.05em; }
+
+    /* ─── Onboarding Modal ─── */
+    #onboarding {
+      position: fixed; inset: 0; z-index: 90;
+      background: rgba(0,0,0,0.85);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #onboarding.hidden { display: none; }
+    .modal {
+      background: #13131a;
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 36px 40px;
+      max-width: 480px; width: 90%;
+      text-align: center;
+    }
+    .modal h2 { font-size: 1.4rem; font-weight: 600; margin-bottom: 8px; }
+    .modal p { color: rgba(255,255,255,0.5); font-size: 14px; margin-bottom: 28px; }
+    .gestures-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 12px; margin-bottom: 28px;
+    }
+    .gesture-card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px; padding: 16px 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .gesture-icon { font-size: 28px; }
+    .gesture-label { font-size: 13px; font-weight: 600; color: var(--neon-cyan); }
+    .gesture-desc { font-size: 11px; color: rgba(255,255,255,0.45); text-align: center; }
+    .btn-start {
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-pink));
+      color: #000; border: none; border-radius: 10px;
+      padding: 12px 36px; font-size: 15px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+    .btn-start:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-start:active { transform: scale(0.97); }
+
+    /* ─── Main App ─── */
+    #app {
+      position: fixed; inset: 0;
+      display: flex; align-items: stretch; justify-content: center;
+    }
+
+    .canvas-stack {
+      position: relative; flex: 1; overflow: hidden;
+    }
+    .canvas-stack canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+    }
+    #camera-canvas { z-index: 1; }
+    #drawing-canvas { z-index: 2; }
+    #ui-canvas { z-index: 3; }
+
+    /* ─── Toolbar ─── */
+    #toolbar {
+      position: absolute; right: 20px; top: 50%;
+      transform: translateY(-50%);
+      z-index: 10;
+      display: flex; flex-direction: column; gap: 8px;
+      background: rgba(10,10,15,0.85);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px; padding: 16px 12px;
+      backdrop-filter: blur(12px);
+      min-width: 110px;
+    }
+
+    .tb-label {
+      font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: rgba(255,255,255,0.35); margin-bottom: 2px;
+    }
+
+    .color-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
+    }
+    .color-swatch {
+      width: 20px; height: 20px; border-radius: 50%;
+      cursor: pointer; border: 2px solid transparent;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .color-swatch:hover { transform: scale(1.2); }
+    .color-swatch.active { border-color: #fff; transform: scale(1.15); }
+
+    .tb-divider {
+      height: 1px; background: var(--glass-border);
+      margin: 4px 0;
+    }
+
+    input[type=range] {
+      width: 100%; height: 4px; border-radius: 2px;
+      -webkit-appearance: none; appearance: none;
+      background: rgba(255,255,255,0.15); cursor: pointer; outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--neon-cyan); cursor: pointer;
+    }
+
+    .val-display {
+      font-size: 11px; color: rgba(255,255,255,0.5);
+      text-align: right; font-variant-numeric: tabular-nums;
+    }
+
+    .icon-btn {
+      width: 36px; height: 36px; border-radius: 8px;
+      background: var(--glass); border: 1px solid var(--glass-border);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: background 0.15s, transform 0.1s;
+      font-size: 15px;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.12); }
+    .icon-btn:active { transform: scale(0.93); }
+    .btn-row { display: flex; gap: 6px; justify-content: center; }
+
+    /* ─── HUD ─── */
+    #gesture-hud {
+      position: absolute; left: 50%; bottom: 24px;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(10,10,15,0.7);
+      border: 1px solid var(--glass-border);
+      border-radius: 30px; padding: 10px 20px;
+      backdrop-filter: blur(10px);
+      font-size: 13px; font-weight: 500;
+      transition: opacity 0.3s;
+    }
+    #hud-icon { font-size: 18px; }
+    #hud-text { color: rgba(255,255,255,0.7); }
+
+    /* ─── Camera toggle ─── */
+    #cam-toggle {
+      position: absolute; left: 20px; top: 20px;
+      z-index: 10;
+      background: rgba(10,10,15,0.7);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px; padding: 8px 14px;
+      font-size: 12px; font-weight: 500;
+      cursor: pointer; backdrop-filter: blur(8px);
+      color: rgba(255,255,255,0.7);
+      transition: background 0.15s;
+    }
+    #cam-toggle:hover { background: rgba(255,255,255,0.1); }
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="logo-title">✦ Air Draw</div>
+  <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
+  <div class="loader-text" id="loader-text">Initializing hand tracking…</div>
+</div>
+
+<!-- Onboarding -->
+<div id="onboarding" class="hidden">
+  <div class="modal">
+    <h2>How to Draw in Air ✦</h2>
+    <p>Use your hand gestures in front of the camera to draw neon art</p>
+    <div class="gestures-grid">
+      <div class="gesture-card">
+        <span class="gesture-icon">☝️</span>
+        <span class="gesture-label">Draw</span>
+        <span class="gesture-desc">Point index finger up</span>
+      </div>
+      <div class="gesture-card">
+        <span class="gesture-icon">✋</span>
+        <span class="gesture-label">Erase</span>
+        <span class="gesture-desc">Open palm sweep</span>
+      </div>
+      <div class="gesture-card">
+        <span class="gesture-icon">🤏</span>
+        <span class="gesture-label">Pause</span>
+        <span class="gesture-desc">Pinch fingers together</span>
+      </div>
+      <div class="gesture-card">
+        <span class="gesture-icon">✊</span>
+        <span class="gesture-label">Idle</span>
+        <span class="gesture-desc">Closed fist to rest</span>
+      </div>
+    </div>
+    <button class="btn-start" id="btn-go">Let's Draw!</button>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <div class="canvas-stack">
+    <canvas id="camera-canvas"></canvas>
+    <canvas id="drawing-canvas"></canvas>
+    <canvas id="ui-canvas"></canvas>
+  </div>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div class="tb-label">Colors</div>
+    <div class="color-grid" id="color-grid"></div>
+    <div class="tb-divider"></div>
+    <div class="tb-label">Thickness</div>
+    <input type="range" id="thickness" min="2" max="40" value="6" step="1" />
+    <div class="val-display" id="thickness-val">6px</div>
+    <div class="tb-divider"></div>
+    <div class="tb-label">Glow</div>
+    <input type="range" id="glow" min="0" max="60" value="30" step="1" />
+    <div class="val-display" id="glow-val">30</div>
+    <div class="tb-divider"></div>
+    <div class="btn-row">
+      <div class="icon-btn" id="btn-undo" title="Undo">↩</div>
+      <div class="icon-btn" id="btn-clear" title="Clear">🗑</div>
+      <div class="icon-btn" id="btn-save" title="Download">⬇</div>
+    </div>
+  </div>
+
+  <!-- Gesture HUD -->
+  <div id="gesture-hud">
+    <span id="hud-icon">✋</span>
+    <span id="hud-text">SHOW HAND</span>
+  </div>
+
+  <!-- Camera Toggle -->
+  <button id="cam-toggle">📷 Camera ON</button>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs';
+
+// ─── State ───────────────────────────────────────────
+const COLORS = ['#00f5ff','#ff00ff','#00ff88','#4488ff','#ff4444','#ffdd00','#aa44ff','#ffffff'];
+let activeColor = COLORS[0];
+let thickness = 6;
+let glowAmount = 30;
+let cameraVisible = true;
+let isDrawing = false;
+let lastX = null, lastY = null;
+let handLandmarker = null;
+let lastVideoTime = -1;
+let strokeSnapshots = [];   // for undo
+let currentGesture = 'idle';
+let eraseRadius = 40;
+let gestureCandidate = 'idle';
+let gestureCandidateFrames = 0;
+let smoothedTipPoint = null;
+let smoothedPalmEraser = null;
+const MAX_STROKE_JUMP = 140;
+
+// ─── DOM refs ─────────────────────────────────────────
+const loadingEl   = document.getElementById('loading');
+const loaderFill  = document.getElementById('loader-fill');
+const loaderText  = document.getElementById('loader-text');
+const onboarding  = document.getElementById('onboarding');
+const camCanvas   = document.getElementById('camera-canvas');
+const drawCanvas  = document.getElementById('drawing-canvas');
+const uiCanvas    = document.getElementById('ui-canvas');
+const camCtx      = camCanvas.getContext('2d');
+const drawCtx     = drawCanvas.getContext('2d');
+const uiCtx       = uiCanvas.getContext('2d');
+const hudIcon     = document.getElementById('hud-icon');
+const hudText     = document.getElementById('hud-text');
+const thickInput  = document.getElementById('thickness');
+const glowInput   = document.getElementById('glow');
+const thickVal    = document.getElementById('thickness-val');
+const glowVal     = document.getElementById('glow-val');
+const camToggle   = document.getElementById('cam-toggle');
+
+// ─── Build color swatches ─────────────────────────────
+const colorGrid = document.getElementById('color-grid');
+COLORS.forEach(c => {
+  const s = document.createElement('div');
+  s.className = 'color-swatch' + (c === activeColor ? ' active' : '');
+  s.style.background = c;
+  s.onclick = () => {
+    document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('active'));
+    s.classList.add('active');
+    activeColor = c;
+  };
+  colorGrid.appendChild(s);
+});
+
+// ─── Controls ─────────────────────────────────────────
+thickInput.oninput = () => { thickness = +thickInput.value; thickVal.textContent = thickness + 'px'; };
+glowInput.oninput  = () => { glowAmount = +glowInput.value;  glowVal.textContent  = glowAmount; };
+
+document.getElementById('btn-undo').onclick = () => {
+  if (strokeSnapshots.length > 0) {
+    strokeSnapshots.pop();
+    restoreLastSnapshot();
+  }
+};
+document.getElementById('btn-clear').onclick = () => {
+  strokeSnapshots = [];
+  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  resetInteractionState({ clearUi: true });
+};
+document.getElementById('btn-save').onclick = () => {
+  const merged = document.createElement('canvas');
+  merged.width  = drawCanvas.width;
+  merged.height = drawCanvas.height;
+  const mCtx = merged.getContext('2d');
+  mCtx.drawImage(camCanvas, 0, 0);
+  mCtx.drawImage(drawCanvas, 0, 0);
+  const a = document.createElement('a');
+  a.href     = merged.toDataURL('image/png');
+  a.download = 'air-draw.png';
+  a.click();
+};
+camToggle.onclick = () => {
+  cameraVisible = !cameraVisible;
+  camToggle.textContent = cameraVisible ? '📷 Camera ON' : '📷 Camera OFF';
+};
+
+// ─── Canvas resize ────────────────────────────────────
+function resizeCanvases() {
+  const snapshot = document.createElement('canvas');
+  const hasExistingDrawing = drawCanvas.width > 0 && drawCanvas.height > 0;
+
+  if (hasExistingDrawing) {
+    snapshot.width = drawCanvas.width;
+    snapshot.height = drawCanvas.height;
+    snapshot.getContext('2d').drawImage(drawCanvas, 0, 0);
+  }
+
+  [camCanvas, drawCanvas, uiCanvas].forEach(c => {
+    c.width  = window.innerWidth;
+    c.height = window.innerHeight;
+  });
+
+  if (hasExistingDrawing) {
+    drawCtx.drawImage(snapshot, 0, 0, snapshot.width, snapshot.height, 0, 0, drawCanvas.width, drawCanvas.height);
+  }
+}
+resizeCanvases();
+window.addEventListener('resize', resizeCanvases);
+
+// ─── Snapshot helpers for undo ────────────────────────
+function saveSnapshot() {
+  strokeSnapshots.push(drawCanvas.toDataURL());
+  if (strokeSnapshots.length > 30) strokeSnapshots.shift();
+}
+function restoreLastSnapshot() {
+  drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+  if (strokeSnapshots.length === 0) return;
+  const img = new Image();
+  img.src = strokeSnapshots[strokeSnapshots.length - 1];
+  img.onload = () => drawCtx.drawImage(img, 0, 0, drawCanvas.width, drawCanvas.height);
+}
+
+function resetInteractionState({ clearUi = false } = {}) {
+  isDrawing = false;
+  lastX = null;
+  lastY = null;
+  currentGesture = 'idle';
+  gestureCandidate = 'idle';
+  gestureCandidateFrames = 0;
+  smoothedTipPoint = null;
+  smoothedPalmEraser = null;
+  if (clearUi) uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+  updateHUD('idle');
+}
+
+function toCanvasPoint(point, canvas = uiCanvas) {
+  return {
+    x: (1 - point.x) * canvas.width,
+    y: point.y * canvas.height,
+  };
+}
+
+function distanceOnCanvas(a, b, canvas = uiCanvas) {
+  const dx = (a.x - b.x) * canvas.width;
+  const dy = (a.y - b.y) * canvas.height;
+  return Math.hypot(dx, dy);
+}
+
+function getPalmEraser(lm, canvas = uiCanvas) {
+  const palmPoints = [lm[0], lm[5], lm[9], lm[13], lm[17]];
+  const center = palmPoints.reduce((acc, point) => {
+    acc.x += point.x;
+    acc.y += point.y;
+    return acc;
+  }, { x: 0, y: 0 });
+
+  center.x /= palmPoints.length;
+  center.y /= palmPoints.length;
+
+  const palmWidth = distanceOnCanvas(lm[5], lm[17], canvas);
+  const palmHeight = distanceOnCanvas(lm[0], lm[9], canvas);
+  const radius = Math.max(eraseRadius, Math.min(110, (palmWidth + palmHeight) * 0.38));
+
+  return {
+    ...toCanvasPoint(center, canvas),
+    radius,
+  };
+}
+
+function smoothPoint(prev, next, factor = 0.35) {
+  if (!next) return null;
+  if (!prev) return { ...next };
+  return {
+    x: prev.x + (next.x - prev.x) * factor,
+    y: prev.y + (next.y - prev.y) * factor,
+  };
+}
+
+function smoothPalmEraser(prev, next, factor = 0.35) {
+  if (!next) return null;
+  if (!prev) return { ...next };
+  return {
+    x: prev.x + (next.x - prev.x) * factor,
+    y: prev.y + (next.y - prev.y) * factor,
+    radius: prev.radius + (next.radius - prev.radius) * factor,
+  };
+}
+
+function getStableGesture(rawGesture) {
+  if (rawGesture === currentGesture) {
+    gestureCandidate = rawGesture;
+    gestureCandidateFrames = 0;
+    return currentGesture;
+  }
+
+  if (rawGesture === gestureCandidate) {
+    gestureCandidateFrames += 1;
+  } else {
+    gestureCandidate = rawGesture;
+    gestureCandidateFrames = 1;
+  }
+
+  const framesNeeded = rawGesture === 'draw' ? 1 : 2;
+  if (gestureCandidateFrames >= framesNeeded) {
+    currentGesture = rawGesture;
+    gestureCandidateFrames = 0;
+  }
+
+  return currentGesture;
+}
+
+// ─── Hand skeleton connections ────────────────────────
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],         // thumb
+  [0,5],[5,6],[6,7],[7,8],         // index
+  [0,9],[9,10],[10,11],[11,12],    // middle
+  [0,13],[13,14],[14,15],[15,16],  // ring
+  [0,17],[17,18],[18,19],[19,20],  // pinky
+  [5,9],[9,13],[13,17],[0,17],     // palm base
+];
+
+// ─── Draw hand skeleton on UI canvas ─────────────────
+function drawHandSkeleton(lm, gesture) {
+  const W = uiCanvas.width, H = uiCanvas.height;
+  const toX = lm => (1 - lm.x) * W;
+  const toY = lm => lm.y * H;
+
+  // Connection lines
+  HAND_CONNECTIONS.forEach(([a, b]) => {
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.moveTo(toX(lm[a]), toY(lm[a]));
+    uiCtx.lineTo(toX(lm[b]), toY(lm[b]));
+    uiCtx.strokeStyle = gesture === 'draw'  ? 'rgba(0,245,255,0.55)'
+                      : gesture === 'erase' ? 'rgba(255,100,100,0.55)'
+                      : 'rgba(255,255,255,0.3)';
+    uiCtx.lineWidth = 1.5;
+    uiCtx.stroke();
+    uiCtx.restore();
+  });
+
+  // Joint dots
+  lm.forEach((point, i) => {
+    const x = toX(point), y = toY(point);
+    const isTip = [4,8,12,16,20].includes(i);
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(x, y, isTip ? 5 : 3, 0, Math.PI * 2);
+    if (isTip) {
+      uiCtx.fillStyle   = gesture === 'draw'  ? activeColor
+                        : gesture === 'erase' ? 'rgba(255,100,100,0.9)'
+                        : 'rgba(255,255,255,0.7)';
+      uiCtx.shadowColor = gesture === 'draw' ? activeColor : 'transparent';
+      uiCtx.shadowBlur  = gesture === 'draw' ? 10 : 0;
+    } else {
+      uiCtx.fillStyle = 'rgba(255,255,255,0.25)';
+    }
+    uiCtx.fill();
+    uiCtx.restore();
+  });
+}
+
+// ─── Gesture Detection (improved) ────────────────────
+function fingerExtended(lm, tip, dip, pip, mcp) {
+  return lm[tip].y < lm[pip].y - 0.01 && lm[dip].y < lm[mcp].y - 0.01;
+}
+
+function detectGesture(lm) {
+  const indexUp  = fingerExtended(lm, 8,  7,  6,  5);
+  const middleUp = fingerExtended(lm, 12, 11, 10, 9);
+  const ringUp   = fingerExtended(lm, 16, 15, 14, 13);
+  const pinkyUp  = fingerExtended(lm, 20, 19, 18, 17);
+
+  const thumbTip  = lm[4];
+  const indexTip  = lm[8];
+  const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+  const raisedFingerCount = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
+
+  if (pinchDist < 0.05) return 'pinch';
+  if (indexUp && middleUp && ringUp && pinkyUp) return 'erase';
+  if (indexUp && raisedFingerCount <= 2) return 'draw';
+  return 'idle';
+}
+
+// ─── Drawing helpers ──────────────────────────────────
+function drawNeonDot(x, y, color, thick, glow) {
+  drawCtx.save();
+  drawCtx.beginPath();
+  drawCtx.arc(x, y, Math.max(2, thick / 2), 0, Math.PI * 2);
+  drawCtx.fillStyle = color;
+  drawCtx.shadowColor = color;
+  drawCtx.shadowBlur = glow * 1.5;
+  drawCtx.fill();
+  drawCtx.restore();
+}
+
+function drawNeonLine(x1, y1, x2, y2, color, thick, glow) {
+  drawCtx.save();
+  drawCtx.strokeStyle = color;
+  drawCtx.lineWidth   = thick;
+  drawCtx.lineCap     = 'round';
+  drawCtx.lineJoin    = 'round';
+  drawCtx.shadowColor = color;
+  drawCtx.shadowBlur  = glow * 2;
+  drawCtx.globalAlpha = 0.6;
+  drawCtx.beginPath();
+  drawCtx.moveTo(x1, y1);
+  drawCtx.lineTo(x2, y2);
+  drawCtx.stroke();
+  drawCtx.shadowBlur  = glow;
+  drawCtx.globalAlpha = 1;
+  drawCtx.beginPath();
+  drawCtx.moveTo(x1, y1);
+  drawCtx.lineTo(x2, y2);
+  drawCtx.stroke();
+  drawCtx.restore();
+}
+
+function eraseAt(x, y, r) {
+  drawCtx.save();
+  drawCtx.globalCompositeOperation = 'destination-out';
+  drawCtx.beginPath();
+  drawCtx.arc(x, y, r, 0, Math.PI * 2);
+  drawCtx.fillStyle = 'rgba(0,0,0,1)';
+  drawCtx.fill();
+  drawCtx.restore();
+}
+
+// ─── UI canvas: skeleton + cursor ────────────────────
+function drawCursor(cursor, gesture, lm, eraseCursor = null) {
+  const { x, y } = cursor;
+  uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+
+  if (lm) drawHandSkeleton(lm, gesture);
+
+  if (gesture === 'draw') {
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(x, y, thickness / 2 + 8, 0, Math.PI * 2);
+    uiCtx.strokeStyle = activeColor;
+    uiCtx.lineWidth   = 2.5;
+    uiCtx.shadowColor = activeColor;
+    uiCtx.shadowBlur  = 18;
+    uiCtx.stroke();
+    uiCtx.restore();
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(x, y, 4, 0, Math.PI * 2);
+    uiCtx.fillStyle   = activeColor;
+    uiCtx.shadowColor = activeColor;
+    uiCtx.shadowBlur  = 14;
+    uiCtx.fill();
+    uiCtx.restore();
+  } else if (gesture === 'erase' && eraseCursor) {
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(eraseCursor.x, eraseCursor.y, eraseCursor.radius, 0, Math.PI * 2);
+    uiCtx.strokeStyle = 'rgba(255,100,100,0.85)';
+    uiCtx.lineWidth = 2.5;
+    uiCtx.setLineDash([8, 6]);
+    uiCtx.shadowColor = 'rgba(255,100,100,0.5)';
+    uiCtx.shadowBlur = 16;
+    uiCtx.stroke();
+    uiCtx.restore();
+
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(eraseCursor.x, eraseCursor.y, 10, 0, Math.PI * 2);
+    uiCtx.fillStyle = 'rgba(255,100,100,0.35)';
+    uiCtx.fill();
+    uiCtx.restore();
+  } else if (gesture === 'pinch') {
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(x, y, 12, 0, Math.PI * 2);
+    uiCtx.strokeStyle = 'rgba(255,220,0,0.7)';
+    uiCtx.lineWidth = 2;
+    uiCtx.stroke();
+    uiCtx.restore();
+  } else {
+    uiCtx.save();
+    uiCtx.beginPath();
+    uiCtx.arc(x, y, 8, 0, Math.PI * 2);
+    uiCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+    uiCtx.lineWidth = 1.5;
+    uiCtx.stroke();
+    uiCtx.restore();
+  }
+}
+
+// ─── HUD update ───────────────────────────────────────
+const HUD_MAP = {
+  draw:  { icon: '☝️', text: 'DRAWING' },
+  erase: { icon: '✋', text: 'ERASING' },
+  pinch: { icon: '🤏', text: 'PAUSED'  },
+  idle:  { icon: '✊', text: 'IDLE'    },
+};
+function updateHUD(gesture) {
+  const { icon, text } = HUD_MAP[gesture] || HUD_MAP.idle;
+  hudIcon.textContent = icon;
+  hudText.textContent = text;
+}
+
+// ─── Main detection loop ──────────────────────────────
+const video = document.createElement('video');
+video.autoplay = true; video.playsInline = true; video.muted = true;
+
+async function detect() {
+  if (!handLandmarker) { requestAnimationFrame(detect); return; }
+
+  if (cameraVisible && video.readyState >= 2) {
+    camCtx.save();
+    camCtx.translate(camCanvas.width, 0);
+    camCtx.scale(-1, 1);
+    camCtx.drawImage(video, 0, 0, camCanvas.width, camCanvas.height);
+    camCtx.restore();
+  } else if (!cameraVisible) {
+    camCtx.fillStyle = '#0a0a0f';
+    camCtx.fillRect(0, 0, camCanvas.width, camCanvas.height);
+  }
+
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const results = handLandmarker.detectForVideo(video, Date.now());
+
+    if (results.landmarks && results.landmarks.length > 0) {
+      const lm      = results.landmarks[0];
+      const gesture = getStableGesture(detectGesture(lm));
+      const rawTipPoint = toCanvasPoint(lm[8], uiCanvas);
+      const rawPalmEraser = getPalmEraser(lm, uiCanvas);
+
+      smoothedTipPoint = smoothPoint(smoothedTipPoint, rawTipPoint, 0.4);
+      smoothedPalmEraser = smoothPalmEraser(smoothedPalmEraser, rawPalmEraser, 0.4);
+
+      const tipPoint = smoothedTipPoint || rawTipPoint;
+      const palmEraser = gesture === 'erase' ? smoothedPalmEraser : null;
+
+      drawCursor(tipPoint, gesture, lm, palmEraser);
+      updateHUD(gesture);
+
+      if (gesture === 'draw') {
+        if (!isDrawing) {
+          saveSnapshot();
+          isDrawing = true;
+          lastX = tipPoint.x;
+          lastY = tipPoint.y;
+          drawNeonDot(tipPoint.x, tipPoint.y, activeColor, thickness, glowAmount);
+        } else {
+          const jumpDistance = Math.hypot(tipPoint.x - lastX, tipPoint.y - lastY);
+
+          if (jumpDistance > MAX_STROKE_JUMP) {
+            lastX = tipPoint.x;
+            lastY = tipPoint.y;
+            drawNeonDot(tipPoint.x, tipPoint.y, activeColor, thickness, glowAmount);
+          } else if (jumpDistance > 1) {
+            drawNeonLine(lastX, lastY, tipPoint.x, tipPoint.y, activeColor, thickness, glowAmount);
+            lastX = tipPoint.x;
+            lastY = tipPoint.y;
+          }
+        }
+      } else {
+        if (isDrawing) isDrawing = false;
+        lastX = null; lastY = null;
+
+        if (gesture === 'erase' && palmEraser) {
+          eraseAt(palmEraser.x, palmEraser.y, palmEraser.radius);
+        }
+      }
+
+      currentGesture = gesture;
+    } else {
+      resetInteractionState({ clearUi: true });
+    }
+  }
+
+  requestAnimationFrame(detect);
+}
+
+// ─── Init ─────────────────────────────────────────────
+async function init() {
+  loaderFill.style.width = '20%';
+  loaderText.textContent = 'Loading MediaPipe…';
+
+  const fileset = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+  );
+
+  loaderFill.style.width = '55%';
+  loaderText.textContent = 'Loading hand model…';
+
+  handLandmarker = await HandLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+      delegate: 'GPU',
+    },
+    runningMode: 'VIDEO',
+    numHands: 1,
+  });
+
+  loaderFill.style.width = '80%';
+  loaderText.textContent = 'Starting camera…';
+
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } });
+  video.srcObject = stream;
+  await video.play();
+
+  loaderFill.style.width = '100%';
+  loaderText.textContent = 'Ready!';
+  await new Promise(r => setTimeout(r, 500));
+
+  loadingEl.classList.add('hidden');
+  onboarding.classList.remove('hidden');
+
+  document.getElementById('btn-go').onclick = () => {
+    onboarding.classList.add('hidden');
+    detect();
+  };
+}
+
+init().catch(err => {
+  loaderText.textContent = '❌ ' + err.message;
+  console.error(err);
+});
+</script>
+</body>
+</html>
