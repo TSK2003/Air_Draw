@@ -88,6 +88,9 @@
       border-radius: 12px; padding: 16px 12px;
       display: flex; flex-direction: column; align-items: center; gap: 8px;
     }
+    .gesture-card.wide {
+      grid-column: span 2;
+    }
     .gesture-icon {
       font-size: 28px;
       font-family: var(--emoji-font);
@@ -202,11 +205,20 @@
       width: 100%; height: 4px; border-radius: 2px;
       -webkit-appearance: none; appearance: none;
       background: rgba(255,255,255,0.15); cursor: pointer; outline: none;
+      transition: background 0.15s, filter 0.15s;
+    }
+    input[type=range].hand-slider-active {
+      background: rgba(0,245,255,0.28);
+      filter: drop-shadow(0 0 8px rgba(0,245,255,0.3));
     }
     input[type=range]::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none;
       width: 14px; height: 14px; border-radius: 50%;
       background: var(--neon-cyan); cursor: pointer;
+    }
+    input[type=range].hand-slider-active::-webkit-slider-thumb {
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.16), 0 0 14px rgba(0,245,255,0.55);
+      transform: scale(1.08);
     }
 
     .val-display {
@@ -287,6 +299,7 @@
 
       .color-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
       .gestures-grid { grid-template-columns: 1fr; }
+      .gesture-card.wide { grid-column: span 1; }
     }
   </style>
 </head>
@@ -325,6 +338,11 @@
         <span class="gesture-label">Idle</span>
         <span class="gesture-desc">Closed fist to rest</span>
       </div>
+      <div class="gesture-card wide">
+        <span class="gesture-icon">&#128080;</span>
+        <span class="gesture-label">Zoom</span>
+        <span class="gesture-desc">Use both hands and pinch to zoom in or zoom out</span>
+      </div>
     </div>
     <p class="modal-tip">Use the wheel or plus and minus buttons. You can also pinch with both hands to zoom like a hologram.</p>
     <button class="btn-start" id="btn-go">Let's Draw!</button>
@@ -359,8 +377,8 @@
       <button class="zoom-pill" id="btn-zoom-reset" title="Reset zoom">100%</button>
       <div class="icon-btn" id="btn-zoom-in" title="Zoom in">+</div>
     </div>
-    <div class="zoom-help">Wheel, plus, minus, or two-hand pinch zoom. Pinch a color to select it. Press 0 to reset.</div>
-    <div class="status-text" id="selection-status">Draw a stroke, pinch a color swatch to select it, or pinch a stroke to move it.</div>
+    <div class="zoom-help">Wheel, plus, minus, or two-hand pinch zoom. Use your hand on colors, thickness, and glow too.</div>
+    <div class="status-text" id="selection-status">Draw a stroke, use your hand on color, thickness, glow, or pinch a stroke to move it.</div>
     <div class="tb-divider"></div>
     <div class="btn-row">
       <div class="icon-btn" id="btn-undo" title="Undo">&#8630;</div>

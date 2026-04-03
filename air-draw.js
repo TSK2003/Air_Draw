@@ -28,6 +28,8 @@ const ZOOM_COLOR_SOFT = 'rgba(255, 196, 64, 0.42)';
 const TOOLBAR_EDGE_PADDING = 12;
 const COLOR_SWATCH_HIT_PADDING = 14;
 const HAND_COLOR_DWELL_MS = 420;
+const SLIDER_HIT_PADDING_X = 12;
+const SLIDER_HIT_PADDING_Y = 16;
 
 let activeColor = COLORS[0];
 let thickness = 6;
@@ -62,6 +64,8 @@ let zoomGestureDirection = 'steady';
 let hoveredColorSwatch = null;
 let lastHandColorPickAt = 0;
 let hoveredColorStartedAt = 0;
+let hoveredHandSlider = null;
+let activeHandSliderType = null;
 let toolbarDragPointerId = null;
 let toolbarDragOffset = { x: 0, y: 0 };
 let toolbarFloating = false;
@@ -123,6 +127,7 @@ const HUD_MAP = {
   erase: { icon: 'ERASE', text: 'ERASING' },
   pinch: { icon: 'MOVE', text: 'PINCH A STROKE' },
   color: { icon: 'COLOR', text: 'PINCH A SWATCH' },
+  adjust: { icon: 'ADJUST', text: 'MOVE ON SLIDER' },
   zoom: { icon: 'ZOOM', text: 'SPREAD BOTH HANDS' },
   idle: { icon: 'IDLE', text: 'IDLE' },
 };
@@ -132,6 +137,18 @@ function setActiveColor(color) {
   document.querySelectorAll('.color-swatch').forEach(node => {
     node.classList.toggle('active', node.dataset.color === color);
   });
+}
+
+function setThicknessValue(value) {
+  thickness = clamp(Number(value), Number(thickInput.min), Number(thickInput.max));
+  thickInput.value = String(thickness);
+  thickVal.textContent = thickness + 'px';
+}
+
+function setGlowValue(value) {
+  glowAmount = clamp(Number(value), Number(glowInput.min), Number(glowInput.max));
+  glowInput.value = String(glowAmount);
+  glowVal.textContent = glowAmount;
 }
 
 COLOR_OPTIONS.forEach(({ value, name }) => {
@@ -148,13 +165,11 @@ COLOR_OPTIONS.forEach(({ value, name }) => {
 });
 
 thickInput.oninput = () => {
-  thickness = Number(thickInput.value);
-  thickVal.textContent = thickness + 'px';
+  setThicknessValue(Number(thickInput.value));
 };
 
 glowInput.oninput = () => {
-  glowAmount = Number(glowInput.value);
-  glowVal.textContent = glowAmount;
+  setGlowValue(Number(glowInput.value));
 };
 
 document.getElementById('btn-undo').onclick = undoLastChange;
@@ -275,6 +290,21 @@ function clearHoveredColorSwatch() {
   setHoveredColorSwatch(null);
 }
 
+function setHoveredHandSlider(slider) {
+  if (hoveredHandSlider === slider) return;
+  hoveredHandSlider?.classList.remove('hand-slider-active');
+  hoveredHandSlider = slider;
+  activeHandSliderType =
+    slider === thickInput ? 'thickness' :
+    slider === glowInput ? 'glow' :
+    null;
+  hoveredHandSlider?.classList.add('hand-slider-active');
+}
+
+function clearHoveredHandSlider() {
+  setHoveredHandSlider(null);
+}
+
 function findColorSwatchAtPoint(point) {
   if (!point) return null;
 
@@ -303,6 +333,33 @@ function findColorSwatchAtPoint(point) {
   return bestSwatch;
 }
 
+function findSliderAtPoint(point) {
+  if (!point) return null;
+
+  const sliders = [thickInput, glowInput];
+  let bestSlider = null;
+  let bestDistance = Infinity;
+
+  for (const slider of sliders) {
+    const rect = slider.getBoundingClientRect();
+    const left = rect.left - SLIDER_HIT_PADDING_X;
+    const right = rect.right + SLIDER_HIT_PADDING_X;
+    const top = rect.top - SLIDER_HIT_PADDING_Y;
+    const bottom = rect.bottom + SLIDER_HIT_PADDING_Y;
+
+    if (point.x < left || point.x > right || point.y < top || point.y > bottom) continue;
+
+    const centerY = (rect.top + rect.bottom) / 2;
+    const distance = Math.abs(point.y - centerY);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestSlider = slider;
+    }
+  }
+
+  return bestSlider;
+}
+
 function isPointInsideToolbar(point) {
   if (!point) return false;
   const rect = getToolbarBounds();
@@ -328,6 +385,33 @@ function tryHandColorSelection(point, commit = false) {
 
 function setToolbarHandMode(isActive) {
   toolbar.classList.toggle('hand-under', isActive);
+}
+
+function applySliderValueFromPoint(slider, point) {
+  const rect = slider.getBoundingClientRect();
+  const min = Number(slider.min || 0);
+  const max = Number(slider.max || 100);
+  const step = Number(slider.step || 1);
+  const ratio = clamp((point.x - rect.left) / rect.width, 0, 1);
+  const rawValue = min + ratio * (max - min);
+  const quantized = min + Math.round((rawValue - min) / step) * step;
+  const nextValue = clamp(quantized, min, max);
+
+  if (slider === thickInput) {
+    setThicknessValue(nextValue);
+  } else if (slider === glowInput) {
+    setGlowValue(nextValue);
+  }
+}
+
+function tryHandSliderAdjustment(point) {
+  const slider = findSliderAtPoint(point);
+  setHoveredHandSlider(slider);
+
+  if (!slider) return false;
+
+  applySliderValueFromPoint(slider, point);
+  return true;
 }
 
 function getPrecisionTipPoint(landmarks) {
@@ -1069,7 +1153,7 @@ function updateSelectionStatus() {
   }
 
   if (!strokes.length) {
-    selectionStatus.textContent = 'Draw a stroke, pinch a color swatch to select it, or use two hands for deep zoom.';
+    selectionStatus.textContent = 'Draw a stroke, use your hand on color, thickness, glow, or use two hands for deep zoom.';
     return;
   }
 
@@ -1079,11 +1163,11 @@ function updateSelectionStatus() {
   }
 
   if (selectedStrokeId && getSelectedStroke()) {
-    selectionStatus.textContent = 'Selected stroke ready. Pinch to move it. Use two hands or + and - for deep zoom.';
+    selectionStatus.textContent = 'Selected stroke ready. Pinch to move it. Use hand sliders or two hands for deep zoom.';
     return;
   }
 
-  selectionStatus.textContent = 'Pinch a stroke to move it. Pinch a swatch to change color. The wheel also zooms.';
+  selectionStatus.textContent = 'Pinch a stroke to move it. Use your hand on color, thickness, glow, or zoom.';
 }
 
 function updateHUD(gesture) {
@@ -1107,6 +1191,12 @@ function updateHUD(gesture) {
       text = 'OBJECT READY';
     } else {
       text = 'PINCH A STROKE';
+    }
+  } else if (gesture === 'adjust') {
+    if (activeHandSliderType === 'thickness') {
+      text = `THICKNESS ${thickness}px`;
+    } else if (activeHandSliderType === 'glow') {
+      text = `GLOW ${glowAmount}`;
     }
   } else if (gesture === 'idle' && selectedStrokeId) {
     text = 'OBJECT SELECTED';
@@ -1424,6 +1514,7 @@ function stopActiveGesture() {
   finishEraseSession();
   finishTwoHandZoom();
   clearHoveredColorSwatch();
+  clearHoveredHandSlider();
   setToolbarHandMode(false);
   currentGesture = 'idle';
   gestureCandidate = 'idle';
@@ -1469,6 +1560,7 @@ async function detect() {
 
       if (zoomHands) {
         clearHoveredColorSwatch();
+        clearHoveredHandSlider();
         const zoomTracking = getTrackingFactors('zoom');
         const rawZoomPoints = [handInfos[0].rawPinchPoint, handInfos[1].rawPinchPoint];
         smoothedZoomPinchPoints = rawZoomPoints.map((point, index) =>
@@ -1505,20 +1597,37 @@ async function detect() {
         const palmEraser = gesture === 'erase' ? (smoothedPalmEraser || rawPalmEraser) : null;
         const cursorPoint = gesture === 'pinch' ? pinchPoint : tipPoint;
         const toolbarActionPoint = gesture === 'erase' && palmEraser ? palmEraser : cursorPoint;
+        const hadSliderActive = Boolean(activeHandSliderType);
+        let sliderUiActive = false;
         let colorUiActive = false;
         if (gesture === 'erase') {
           clearHoveredColorSwatch();
+          clearHoveredHandSlider();
         } else {
-          colorUiActive = tryHandColorSelection(tipPoint, false);
-          if (gesture === 'pinch') {
-            colorUiActive = tryHandColorSelection(pinchPoint, true) || colorUiActive;
+          sliderUiActive = tryHandSliderAdjustment(cursorPoint);
+          if (sliderUiActive) {
+            clearHoveredColorSwatch();
+          } else {
+            colorUiActive = tryHandColorSelection(tipPoint, false);
+            if (gesture === 'pinch') {
+              colorUiActive = tryHandColorSelection(pinchPoint, true) || colorUiActive;
+            }
           }
         }
         const interactingWithToolbar = isPointInsideToolbar(toolbarActionPoint);
-        const hudGesture = colorUiActive ? 'color' : gesture;
+        const hudGesture = sliderUiActive ? 'adjust' : colorUiActive ? 'color' : gesture;
 
         renderOverlay(cursorPoint, gesture, landmarks, palmEraser);
         updateHUD(hudGesture);
+
+        if (sliderUiActive) {
+          selectionStatus.textContent =
+            activeHandSliderType === 'thickness'
+              ? `Hand thickness control active: ${thickness}px. Move left or right to adjust.`
+              : `Hand glow control active: ${glowAmount}. Move left or right to adjust.`;
+        } else if (hadSliderActive) {
+          updateSelectionStatus();
+        }
 
         if (gesture !== 'draw') finishStroke();
         if (gesture !== 'erase') finishEraseSession();
