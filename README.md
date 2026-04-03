@@ -8,7 +8,7 @@ Draw in mid-air using just your hand and webcam. Powered by **MediaPipe Hand Lan
 |---|---|
 | ☝️ Index finger up | **Draw** neon strokes |
 | ✋ Open palm | **Erase** with sweeping motion |
-| 🤏 Pinch | **Pause** drawing |
+| 🤏 Pinch | **Move** the artwork |
 | ✊ Closed fist | **Idle** / rest |
 
 ## 🚀 Run It (Zero Setup!)
